@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Depthwise — Kepulauan di atas awan</title>
+    <meta
+      name="description"
+      content="Depthwise adalah dunia 3D interaktif: lima pulau terapung, satu kapal udara, dan empat permainan kecil yang bisa dijelajahi langsung di browser."
+    />
+    <meta name="theme-color" content="#1d2440" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Depthwise — Kepulauan di atas awan" />
+    <meta
+      property="og:description"
+      content="Lima pulau terapung, satu kapal udara, dan empat permainan kecil dalam satu dunia 3D di browser."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body data-mode="title">
+    <canvas id="scene" aria-label="Pemandangan 3D kepulauan Depthwise. Seret untuk memutar kamera."></canvas>
+
+    <!-- Rough-ink filter shared by every passport stamp. -->
+    <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+      <filter id="ink" x="-10%" y="-10%" width="120%" height="120%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="4" result="grain" />
+        <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -1.7 0 0 0 1.72" result="wear" />
+        <feComposite in="SourceGraphic" in2="wear" operator="in" result="worn" />
+        <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="9" result="warp" />
+        <feDisplacementMap in="worn" in2="warp" scale="1.8" />
+      </filter>
+    </svg>
+
+    <nav class="pins layer" id="pins" aria-label="Pulau tujuan"></nav>
+
+    <header class="hud layer" id="hud">
+      <div class="hud__brand">
+        <span class="wordmark">Depthwise</span>
+        <span class="place" id="place"><b>LBF</b><span>Labuan Fajar</span></span>
+      </div>
+      <div class="hud__tools" role="toolbar" aria-label="Alat">
+        <button class="tool" id="btn-map" type="button">
+          <span class="tool__icon" data-icon="map"></span><span class="tool__label">Peta</span>
+        </button>
+        <button class="tool" id="btn-stamps" type="button" aria-label="Buka buku cap">
+          <span class="tool__icon" data-icon="stamp"></span><span class="tool__label" id="stamp-count">0/4</span>
+        </button>
+        <button class="tool" id="btn-time" type="button" aria-label="Ganti waktu">
+          <span class="dial" aria-hidden="true"><i></i></span><span class="tool__label" id="time-label">Pagi</span>
+        </button>
+        <button class="tool tool--icon" id="btn-sound" type="button" aria-pressed="false" aria-label="Matikan suara">
+          <span class="tool__icon" data-icon="sound"></span>
+        </button>
+        <button class="tool tool--icon" id="btn-help" type="button" aria-label="Cara main">
+          <span class="tool__icon" data-icon="help"></span>
+        </button>
+      </div>
+    </header>
+
+    <section class="title layer is-on" id="title" aria-labelledby="title-name">
+      <p class="title__kicker">Dunia 3D interaktif</p>
+      <div class="title__body">
+        <h1 class="title__name" id="title-name">Depthwise</h1>
+        <p class="title__tagline">Kepulauan di atas awan</p>
+        <p class="title__intro">
+          Naik kapal udara, singgah di tiap pulau, dan kumpulkan semua cap perjalanannya.
+        </p>
+        <div class="title__actions">
+          <button class="btn btn--primary btn--large" id="btn-start" type="button" disabled>
+            <span id="start-label">Menyiapkan angin…</span><span class="btn__arrow" data-icon="arrow"></span>
+          </button>
+          <span class="title__note">Lebih enak pakai suara</span>
+        </div>
+      </div>
+      <ul class="title__legend" aria-label="Isi dunia ini">
+        <li><b>5</b> pulau</li>
+        <li><b>4</b> permainan</li>
+        <li><b>1</b> kapal udara</li>
+      </ul>
+    </section>
+
+    <p class="maphint layer" id="maphint">Pilih pulau tujuan · seret untuk memutar · <kbd>Esc</kbd> kembali terbang</p>
+
+    <section class="flight layer" id="flight" aria-label="Kendali">
+      <!-- Shown for a few seconds whenever the controls change, then faded out. -->
+      <dl class="controls is-faded" id="controls-fly" aria-label="Tombol kendali kapal" hidden>
+        <div><dt><kbd>W</kbd><kbd>S</kbd></dt><dd>maju / mundur</dd></div>
+        <div><dt><kbd>A</kbd><kbd>D</kbd></dt><dd>belok</dd></div>
+        <div><dt><kbd>Spasi</kbd><kbd>Shift</kbd></dt><dd>naik / turun</dd></div>
+        <div><dt>Seret</dt><dd>lihat sekeliling</dd></div>
+      </dl>
+      <dl class="controls is-faded" id="controls-walk" aria-label="Tombol kendali jalan kaki" hidden>
+        <div><dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>jalan</dd></div>
+        <div><dt><kbd>Shift</kbd></dt><dd>lari</dd></div>
+        <div><dt><kbd>Spasi</kbd></dt><dd>lompat</dd></div>
+        <div><dt><kbd>E</kbd></dt><dd>main / naik kapal</dd></div>
+      </dl>
+      <button class="prompt" id="prompt" type="button" hidden>
+        <span class="prompt__code" id="prompt-code">UBN</span>
+        <span class="prompt__text"><span id="prompt-lead">Singgah di</span> <b id="prompt-name">Pulau Ubin</b></span>
+        <kbd class="prompt__key">E</kbd>
+      </button>
+      <div class="stick" id="stick" aria-hidden="true"><i class="stick__knob" id="stick-knob"></i></div>
+      <div class="lift" aria-hidden="true">
+        <button class="lift__btn" id="lift-up" type="button" tabindex="-1">&#9650;</button>
+        <button class="lift__btn" id="lift-down" type="button" tabindex="-1">&#9660;</button>
+      </div>
+    </section>
+
+    <aside class="ticket layer" id="ticket" aria-labelledby="ticket-name">
+      <div class="ticket__paper">
+        <div class="ticket__main">
+          <p class="ticket__eyebrow"><span id="ticket-kind">Pelabuhan</span><span id="ticket-alt">1.200 m</span></p>
+          <h2 class="ticket__name" id="ticket-name">Labuan Fajar</h2>
+          <p class="ticket__blurb" id="ticket-blurb"></p>
+          <dl class="ticket__facts" id="ticket-facts"></dl>
+          <div class="ticket__actions">
+            <button class="btn btn--primary" id="btn-play" type="button">
+              <span id="play-label">Mulai main</span><kbd class="btn__key">E</kbd>
+            </button>
+            <button class="btn btn--ghost" id="btn-back" type="button">Terbang lagi</button>
+          </div>
+        </div>
+        <div class="ticket__stub" aria-hidden="true">
+          <span class="ticket__code" id="ticket-code">LBF</span>
+          <div class="ticket__stamp" id="ticket-stamp"></div>
+          <span class="ticket__serial" id="ticket-serial">DW · 01</span>
+        </div>
+      </div>
+    </aside>
+
+    <div class="travel layer" id="travel" role="status">
+      <div class="travel__route">
+        <span class="travel__code" id="travel-from">LBF</span>
+        <span class="travel__line"><i id="travel-bar"></i></span>
+        <span class="travel__code" id="travel-to">UBN</span>
+      </div>
+      <p class="travel__text" id="travel-text">Menuju Pulau Ubin</p>
+    </div>
+
+    <section class="game layer" id="game" aria-labelledby="game-title">
+      <div class="game__bar">
+        <div class="game__head">
+          <span class="game__eyebrow" id="game-island">Pulau Ubin</span>
+          <h2 class="game__title" id="game-title">Ubin Geser</h2>
+        </div>
+        <dl class="game__stats" id="game-stats"></dl>
+        <div class="game__actions" id="game-actions"></div>
+        <button class="btn btn--ghost btn--small" id="btn-exit" type="button">Keluar</button>
+      </div>
+      <!-- The reference picture is inserted by the game that needs one. -->
+      <figure class="game__preview" id="game-preview" hidden>
+        <figcaption>Gambar utuh</figcaption>
+      </figure>
+      <p class="game__hint" id="game-hint" aria-live="polite"></p>
+      <div class="game__banner" id="game-banner" aria-live="assertive"></div>
+
+      <div class="result" id="result" role="group" aria-labelledby="result-title" hidden>
+        <div class="result__stamp" id="result-stamp" aria-hidden="true"></div>
+        <p class="result__eyebrow" id="result-eyebrow"></p>
+        <h3 class="result__title" id="result-title"></h3>
+        <ul class="result__lines" id="result-lines"></ul>
+        <div class="result__actions">
+          <button class="btn btn--ghost" id="btn-again" type="button">Main lagi</button>
+          <button class="btn btn--primary" id="btn-done" type="button">Selesai</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <dialog class="sheet" id="stampbook" aria-labelledby="stampbook-title">
+      <form method="dialog"><button class="sheet__close" aria-label="Tutup">×</button></form>
+      <p class="sheet__eyebrow">Paspor pelaut langit</p>
+      <h2 class="sheet__title" id="stampbook-title">Buku cap</h2>
+      <p class="sheet__lead" id="stampbook-lead"></p>
+      <ol class="stamps" id="stamps"></ol>
+      <div class="sheet__foot">
+        <p class="credit">Depthwise dibuat oleh <span id="credit-name"></span> dengan Three.js.</p>
+        <div class="sheet__buttons">
+          <button class="btn btn--primary btn--small" id="btn-celebrate" type="button" hidden>Nyalakan kembang api</button>
+          <button class="btn btn--ghost btn--small" id="btn-reset" type="button">Hapus progres</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="sheet" id="help" aria-labelledby="help-title">
+      <form method="dialog"><button class="sheet__close" aria-label="Tutup">×</button></form>
+      <p class="sheet__eyebrow">Panduan singkat</p>
+      <h2 class="sheet__title" id="help-title">Cara main</h2>
+      <dl class="keys">
+        <div><dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></dt><dd>Di kapal: maju, mundur, belok. Di pulau: jalan. Tombol panah juga bisa.</dd></div>
+        <div><dt><kbd>Spasi</kbd></dt><dd>Di kapal: naik. Di pulau: lompat.</dd></div>
+        <div><dt><kbd>Shift</kbd></dt><dd>Di kapal: turun. Di pulau: lari.</dd></div>
+        <div><dt><kbd>E</kbd></dt><dd>Singgah di pulau terdekat, mulai main di titik bercahaya, atau naik kapal lagi.</dd></div>
+        <div><dt>Seret / gulir</dt><dd>Lihat sekeliling, dekatkan atau jauhkan kamera.</dd></div>
+        <div><dt><kbd>M</kbd></dt><dd>Peta kepulauan. Klik pulau buat terbang otomatis ke sana.</dd></div>
+        <div><dt><kbd>T</kbd></dt><dd>Ganti waktu: pagi, siang, senja, malam.</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Keluar dari permainan, atau langsung lepas landas dari pulau.</dd></div>
+      </dl>
+      <p class="sheet__lead">
+        Tiap pulau selain pelabuhan punya satu permainan yang ditandai cahaya keemasan. Menangkan permainannya buat dapat
+        cap di buku cap. Kumpulkan
+        keempatnya dan lihat apa yang terjadi di Labuan Fajar.
+      </p>
+    </dialog>
+
+    <noscript><p class="noscript">Depthwise butuh JavaScript dan WebGL buat berjalan.</p></noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
