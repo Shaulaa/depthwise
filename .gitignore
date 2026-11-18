@@ -5,3 +5,5 @@ dist
 .vite
 .playwright-mcp
 .impeccable/hook.cache.json
+.vercel
+.env*
