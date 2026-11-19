@@ -4,6 +4,6 @@ dist
 .DS_Store
 .vite
 .playwright-mcp
-.impeccable/hook.cache.json
+.impeccable
 .vercel
 .env*
