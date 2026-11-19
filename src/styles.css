@@ -446,6 +446,7 @@ body[data-mode='game'] .hud__brand,
 body[data-mode='game'] #btn-map,
 body[data-mode='game'] #btn-stamps,
 body[data-mode='game'] #btn-time,
+body[data-mode='game'] #btn-weather,
 body[data-mode='game'] #btn-help,
 body[data-mode='map'] #btn-map,
 body[data-mode='travel'] #btn-map {
@@ -1881,4 +1882,50 @@ kbd {
   .toast {
     animation: none !important;
   }
+}
+
+/* The narrowest phones: six tools and the island code have to share about 330px. */
+@media (max-width: 400px) {
+  .hud__tools {
+    gap: 4px;
+  }
+
+  .tool,
+  .tool--icon {
+    width: 34px;
+  }
+
+  #btn-time,
+  #btn-stamps {
+    width: auto;
+    padding: 0 9px;
+  }
+
+  .tool #stamp-count {
+    margin-left: -2px;
+  }
+}
+
+/* 320px phones: the island code makes way for the tools (the prompt still names the island). */
+@media (max-width: 340px) {
+  #place {
+    display: none;
+  }
+}
+
+/* Frame-rate readout for device testing (?stats). */
+.perf {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  left: 8px;
+  z-index: 60;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgb(10 14 30 / 0.72);
+  color: #e8f0ff;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  max-width: calc(100vw - 16px);
+  white-space: pre-wrap;
+  pointer-events: none;
 }

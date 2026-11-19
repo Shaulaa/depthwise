@@ -37,9 +37,9 @@ Setelah menekan **Mulai berlayar**, kapal udara langsung lo kemudikan sendiri. D
 | `Esc` | — | langsung naik kapal dan lepas landas |
 | Seret / gulir | lihat sekeliling, dekat / jauh | lihat sekeliling, dekat / jauh |
 
-Tombol panah bisa dipakai seperti `WASD`. `M` membuka peta (klik pulau buat terbang otomatis, `Esc` buat kembali), dan `T` mengganti waktu (pagi, siang, senja, malam). Daftar tombol muncul sebentar di kiri bawah tiap kali kontrolnya berganti.
+Tombol panah bisa dipakai seperti `WASD`. `M` membuka peta (klik pulau buat terbang otomatis, `Esc` buat kembali), `T` mengganti waktu (pagi, siang, senja, malam), dan `C` mengganti cuaca. Daftar tombol muncul sebentar di kiri bawah tiap kali kontrolnya berganti.
 
-Di layar sentuh ada joystick di kiri bawah. Tombol di kanan bawah dipakai buat naik / turun di kapal, dan buat lompat di pulau.
+Di layar sentuh ada joystick di kiri bawah, dan cuaca bisa diganti lewat tombol awan di bilah atas. Tombol di kanan bawah dipakai buat naik / turun di kapal, dan buat lompat di pulau.
 
 ## Pulau dan permainannya
 
@@ -58,6 +58,12 @@ Di layar sentuh ada joystick di kiri bawah. Tombol di kanan bawah dipakai buat n
 - **Kostum.** Tiap cap membuka satu warna jaket dan syal baru, dan kostum Bulu Angin terbuka setelah semua bulu terkumpul. Ganti kostum lewat buku cap.
 - **Penunjuk arah.** Kalau titik main di luar layar, muncul penunjuk arah di tepi layar lengkap dengan jaraknya.
 - **Musik.** Musik latar berganti nuansa mengikuti pulau terdekat.
+
+## Cuaca dan hewan
+
+- **Cuaca** berganti sendiri tiap beberapa menit: cerah, mendung, hujan, atau kabut. Hujan dan mendung meredupkan matahari serta menyembunyikan bintang, kabut menebalkan jarak pandang, dan habis hujan reda di siang hari biasanya muncul pelangi di sisi yang berlawanan dengan matahari.
+- **Burung kecil** mendarat dan melompat-lompat di tiap pulau. Mereka terbang kabur kalau didekati (oleh kamu atau warga), lalu balik lagi ke tempat yang sepi. Waktu hujan mereka pergi berteduh.
+- **Kupu-kupu** beterbangan di atas rumput waktu siang, dan **kunang-kunang** muncul di semua pulau waktu malam.
 
 Progres (cap, rekor, bulu angin, kostum, pengaturan suara) disimpan di `localStorage` browser dan bisa dihapus dari buku cap.
 
@@ -85,7 +91,9 @@ Beberapa catatan teknis:
 - **Warga** (`world/Npc.ts`) memakai `Character` dan `Walker` yang sama dengan pemain, jadi mereka juga menghindari rumah dan pohon. Dialog dan data kostum ada di `content.ts`.
 - **Kamera jalan kaki** maju ke depan pohon atau bangunan yang menghalangi karakter, lalu mundur pelan setelah pandangan bersih.
 - **Pemuatan:** Three.js dan GSAP dipisah ke chunk `vendor` supaya tetap ter-cache antar deploy, sedangkan tiap permainan mini baru diunduh waktu dimainkan (atau saat karakter berdiri di titik mainnya).
-- **Audio** disintesis dengan Web Audio API (`core/AudioEngine.ts`).
+- **Cuaca** (`world/Weather.ts`) memisahkan logika (`WeatherCycle`, yang bisa dites) dari tampilannya. Hujan adalah satu `LineSegments` yang digerakkan shader di dalam kotak yang mengikuti kamera, jadi butirannya tidak pernah habis tanpa perlu update di CPU.
+- **Hewan** (`world/Wildlife.ts`) memakai `InstancedMesh`, jadi semua burung dan kupu-kupu cuma butuh tiga draw call.
+- **Audio** disintesis dengan Web Audio API (`core/AudioEngine.ts`), termasuk suara hujan dan kepakan burung.
 - Resolusi render turun otomatis kalau frame rate tidak terkejar.
 
 ## Pintasan pengembangan
@@ -94,6 +102,8 @@ Parameter URL ini membantu saat mengerjakan satu bagian:
 
 - `?island=ubin` memulai di pulau tertentu (`hub`, `ubin`, `rimba`, `angin`, `lentera`)
 - `?time=0.8` mengunci waktu (0 tengah malam, 0.5 siang)
+- `?weather=hujan` mengunci cuaca (`cerah`, `mendung`, `hujan`, `kabut`)
+- `?stats` menampilkan fps, jumlah draw call, resolusi, dan nama GPU (berguna buat ngetes di HP)
 - `?autostart` melewati layar judul
 
 Di mode pengembangan, instance aplikasi tersedia di konsol sebagai `window.depthwise`.

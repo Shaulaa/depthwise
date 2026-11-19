@@ -140,7 +140,8 @@ export class Sky {
     this.group.add(dome, this.starField);
   }
 
-  update(day: DayNight, camera: THREE.Camera, dt: number): void {
+  /** @param clear How open the sky is, 0..1; clouds hide the moon and stars. */
+  update(day: DayNight, camera: THREE.Camera, dt: number, clear = 1): void {
     this.group.position.copy(camera.position);
     const u = this.dome.uniforms as Record<string, THREE.IUniform>;
     (u.uTop!.value as THREE.Color).copy(day.top);
@@ -150,10 +151,10 @@ export class Sky {
     (u.uSunDir!.value as THREE.Vector3).copy(day.sunDir);
     (u.uMoonDir!.value as THREE.Vector3).copy(day.moonDir);
     u.uSun!.value = day.sunVisibility;
-    u.uNight!.value = day.night;
+    u.uNight!.value = day.night * clear;
 
-    this.stars.uniforms.uOpacity!.value = day.night * day.night;
-    this.starField.visible = day.night > 0.02;
+    this.stars.uniforms.uOpacity!.value = day.night * day.night * clear;
+    this.starField.visible = day.night * clear > 0.02;
     this.starField.rotation.y += dt * 0.004;
   }
 }

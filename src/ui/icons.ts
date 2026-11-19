@@ -9,6 +9,7 @@ export const ICONS: Record<string, string> = {
   help: svg('<path d="M9.2 9.2a2.9 2.9 0 1 1 4.3 2.6c-.9.5-1.5 1.1-1.5 2.2"/><circle cx="12" cy="17.6" r=".6" fill="currentColor"/><circle cx="12" cy="12" r="9.2"/>'),
   arrow: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
   ship: svg('<ellipse cx="12" cy="9" rx="8.5" ry="4"/><path d="M8.5 16h7l-1 3h-5l-1-3ZM9 12.6 9.5 16M15 12.6 14.5 16"/>'),
+  weather: svg('<path d="M7 17.5h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6-1A4 4 0 0 0 7 17.5Z"/><path d="m9 20.5-.6 1.2M13 20.5l-.6 1.2M17 20.5l-.6 1.2"/>'),
   check: svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>'),
 };
 

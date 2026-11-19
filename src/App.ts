@@ -12,11 +12,13 @@ import { Input, type PointerInfo } from './core/Input';
 import { clamp, damp, shortestAngle } from './core/math';
 import { DEFAULT_OUTFIT, Store, type GameId } from './core/Store';
 import { createGame, prefetchGame, type GameOutcome, type MiniGame } from './games';
+import { PerfStats } from './ui/PerfStats';
 import { UI, recordText, type Mode, type Prompt } from './ui/UI';
 import type { BuiltIsland } from './world/islands';
 import { Flight, resolveCollisions, type FlightInput } from './world/Flight';
 import { NPC_RADIUS, type Npc } from './world/Npc';
 import { BODY_RADIUS, Walker, groundAt, type WalkInput } from './world/Walk';
+import { WEATHER_KINDS, WEATHER_LABEL, isWeatherKind, type WeatherKind } from './world/Weather';
 import { World } from './world/World';
 import { foliageMat, solidMat } from './world/materials';
 
@@ -115,6 +117,10 @@ export class App {
   private viewReach = Infinity;
   /** Point between the player and an islander, which the camera orbits during a conversation. */
   private readonly talkFocus = new THREE.Object3D();
+  /** Frame-rate readout, only with `?stats`. */
+  private stats: PerfStats | null = null;
+  /** Seconds before another flutter of birds may be heard. */
+  private flutterCooldown = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.ui = new UI({
@@ -127,6 +133,7 @@ export class App {
       exitGame: () => this.exitGame(),
       replay: () => this.replay(),
       cycleTime: () => this.cycleTime(),
+      cycleWeather: () => this.cycleWeather(),
       toggleSound: () => this.toggleSound(),
       reset: () => this.reset(),
       celebrate: () => this.requestCelebration(),
@@ -146,7 +153,7 @@ export class App {
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.04;
 
-    this.world = new World(this.pixelRatio);
+    this.world = new World(this.pixelRatio, coarse ? 1400 : 2400);
     this.flight = new Flight(this.world.ship, this.world.islands);
     for (const built of this.world.islands.values()) {
       const list: THREE.Object3D[] = [];
@@ -179,6 +186,7 @@ export class App {
       this.ui.toast('Tampilan 3D terputus. Muat ulang halaman buat melanjutkan.');
     });
 
+    if (new URLSearchParams(location.search).has('stats')) this.stats = new PerfStats(this.renderer);
     this.applyQuery();
     this.resize();
     this.rig.snap({ target: this.world.island('hub').focus, theta: 1.3, phi: 1.24, radius: 80 });
@@ -934,6 +942,33 @@ export class App {
     this.audio.click();
   }
 
+  /** Step to the next kind of weather by hand. */
+  private cycleWeather(): void {
+    const weather = this.world.weather;
+    const next = WEATHER_KINDS[(WEATHER_KINDS.indexOf(weather.kind) + 1) % WEATHER_KINDS.length] as WeatherKind;
+    weather.cycle.set(next);
+    this.ui.toast(`Cuaca: ${WEATHER_LABEL[next]}`);
+    this.audio.click();
+  }
+
+  /** Rain sound, startled birds, and a word when the weather turns by itself. */
+  private reactToWeather(dt: number): void {
+    const world = this.world;
+    this.audio.setRain(world.weather.cycle.level.rain);
+    this.flutterCooldown = Math.max(0, this.flutterCooldown - dt);
+    if (world.birdsFlushed > 0 && this.flutterCooldown === 0) {
+      this.audio.flutter();
+      this.flutterCooldown = 0.35;
+    }
+    const change = world.weatherChange;
+    if (!change || (this.mode !== 'fly' && this.mode !== 'island')) return;
+    if (change === 'hujan') this.ui.toast('Hujan turun. Burung-burung pergi berteduh.');
+    else if (change === 'kabut') this.ui.toast('Kabut turun. Pulau-pulau jadi samar.');
+    else if (world.weather.cycle.rainbowDue && world.day.night < 0.3 && world.day.sunDir.y > 0) {
+      this.ui.toast('Hujan reda. Coba lihat ke langit.');
+    }
+  }
+
   private toggleSound(): void {
     this.store.muted = !this.store.muted;
     this.audio.start();
@@ -997,7 +1032,7 @@ export class App {
     });
   }
 
-  /** Development shortcuts: ?island=ubin, ?time=0.8, ?autostart. */
+  /** Development shortcuts: ?island=ubin, ?time=0.8, ?weather=hujan, ?autostart, ?stats. */
   private applyQuery(): void {
     const query = new URLSearchParams(location.search);
     const island = query.get('island');
@@ -1005,6 +1040,11 @@ export class App {
       this.current = island;
       const dock = this.world.island(island).dock;
       this.world.ship.moor(dock.position, dock.yaw);
+    }
+    const weather = query.get('weather');
+    if (isWeatherKind(weather)) {
+      this.world.weather.cycle.set(weather, true);
+      this.world.weather.cycle.locked = true;
     }
     const time = Number.parseFloat(query.get('time') ?? '');
     if (Number.isFinite(time)) {
@@ -1034,6 +1074,7 @@ export class App {
     if (this.mode === 'map') {
       if (key === 'Escape' || key === 'm') this.closeMap();
       else if (key === 't') this.cycleTime();
+      else if (key === 'c') this.cycleWeather();
       return;
     }
     if (this.mode === 'island' && this.talk && (key === 'Escape' || key === ' ')) {
@@ -1053,6 +1094,7 @@ export class App {
     }
     if (key === 'm') this.openMap();
     else if (key === 't' && this.mode !== 'title') this.cycleTime();
+    else if (key === 'c' && this.mode !== 'title') this.cycleWeather();
   }
 
   /** Nearest island under the pointer, tested against rough bounding spheres. */
@@ -1145,6 +1187,7 @@ export class App {
       : this.mode === 'island' ? 48
       : this.rig.distance * 0.72;
     this.world.update(dt, this.camera, focus, reach);
+    this.reactToWeather(dt);
     // The music takes on the colour of whichever island is nearest.
     this.audio.setMood(this.mode === 'fly' ? (this.placeShown ?? this.current) : this.current);
     this.audio.update(dt, this.world.day.night, this.world.ship.speed);
@@ -1152,9 +1195,12 @@ export class App {
     if (this.mode === 'map' || this.mode === 'fly') this.updateMap();
     if (this.trip) this.ui.setTravelProgress((now - this.trip.started) / 1000 / this.trip.duration);
     const time = this.world.day.time;
-    this.ui.setTime(phaseLabel(time), clockLabel(time), time);
+    const kind = this.world.weather.kind;
+    this.ui.setTime(kind === 'cerah' ? phaseLabel(time) : `${phaseLabel(time)}, ${WEATHER_LABEL[kind].toLowerCase()}`, clockLabel(time), time);
 
+    this.stats?.begin();
     this.composer.render(dt);
+    this.stats?.end(elapsed, this.pixelRatio);
     this.watchPerformance(elapsed);
   };
 

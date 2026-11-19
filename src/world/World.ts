@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { NPCS, type IslandId, type NpcInfo } from '../content';
 import { DayNight } from '../core/DayNight';
-import { clamp } from '../core/math';
+import { clamp, mulberry32 } from '../core/math';
 import { Airship } from './Airship';
-import { Birds, Fireworks } from './ambient';
+import { Birds, Fireflies, Fireworks } from './ambient';
 import { Beacon } from './Beacon';
 import { Character } from './Character';
 import { Clouds } from './Clouds';
@@ -15,6 +15,8 @@ import { buildIslands, type BuiltIsland } from './islands';
 import { shared, updateGlows } from './materials';
 import { Sky } from './Sky';
 import { createOcean, updateWater } from './Water';
+import { Weather, type WeatherKind } from './Weather';
+import { Wildlife, type Habitat } from './Wildlife';
 
 const SEA_LEVEL = -74;
 
@@ -33,6 +35,11 @@ export class World {
   readonly npcs: Npc[] = [];
   readonly feathers: Feathers;
   readonly dust = new Dust();
+  readonly weather: Weather;
+  /** Set by `update` when the weather turned on its own this frame. */
+  weatherChange: WeatherKind | null = null;
+  /** Birds that took off this frame. */
+  birdsFlushed = 0;
 
   private readonly fog = new THREE.FogExp2('#bcdcf4', 0.0011);
   private readonly sun = new THREE.DirectionalLight('#ffffff', 3);
@@ -40,9 +47,14 @@ export class World {
   private readonly sky: Sky;
   private readonly clouds = new Clouds();
   private readonly birds = new Birds();
+  private readonly wildlife: Wildlife;
+  /** Night-time motes on every island but Rimba, which has its own swarm. */
+  private readonly fireflies: Fireflies[] = [];
+  private readonly walkers: THREE.Vector3[] = [];
   private time = 0;
 
-  constructor(pixelRatio: number) {
+  /** @param rainDrops Fewer on phones, where every streak costs fill rate. */
+  constructor(pixelRatio: number, rainDrops = 2400) {
     this.scene.fog = this.fog;
 
     this.sun.castShadow = true;
@@ -76,6 +88,25 @@ export class World {
       this.npcs.push(npc);
       this.scene.add(npc.figure.root);
     }
+
+    this.weather = new Weather(rainDrops);
+    this.scene.add(this.weather.group);
+
+    const habitats: Habitat[] = [];
+    for (const built of this.islands.values()) {
+      const area = World.walkArea(built);
+      const rng = mulberry32(built.island.shape.seed * 71 + 3);
+      const avoid = area.blockers.map((b) => ({ x: b.x, z: b.z, r: b.r + 0.6 }));
+      const spots = built.island.scatter(rng, 14, { margin: 0.14, minFlatness: 0.86, avoid, spacing: 2.5 });
+      habitats.push({ area, origin: built.group.position, spots: spots.map((p) => ({ x: p.x, z: p.z })) });
+      if (built.id !== 'rimba') {
+        const motes = new Fireflies(built.island.scatter(rng, 28, { margin: 0.1, minFlatness: 0.6 }), pixelRatio);
+        built.group.add(motes.points);
+        this.fireflies.push(motes);
+      }
+    }
+    this.wildlife = new Wildlife(habitats);
+    this.scene.add(this.wildlife.group);
 
     const home = this.island('hub');
     this.ship.moor(home.dock.position, home.dock.yaw);
@@ -134,6 +165,9 @@ export class World {
     shared.time.value = this.time;
     const day = this.day;
     day.update(dt);
+    this.weatherChange = this.weather.update(dt);
+    this.weather.apply(day);
+    this.fog.density = this.weather.fogDensity;
 
     this.fog.color.copy(day.fog);
     this.hemi.color.copy(day.hemiSky);
@@ -156,12 +190,19 @@ export class World {
 
     updateGlows(day.night);
     updateWater(day);
-    this.sky.update(day, camera, dt);
+    this.sky.update(day, camera, dt, this.weather.clearSky);
+    this.weather.place(camera, day);
     this.clouds.update(dt, day);
     this.birds.update(dt, this.time);
     this.fireworks.update(dt);
     this.feathers.update(this.time, day.night);
     this.dust.update(dt);
+    const { rain } = this.weather.cycle.level;
+    for (const motes of this.fireflies) motes.update(day.night * (1 - rain));
+    this.walkers.length = 0;
+    if (this.hero.visible) this.walkers.push(this.hero.root.position);
+    for (const npc of this.npcs) this.walkers.push(npc.position);
+    this.birdsFlushed = this.wildlife.update(dt, this.time, this.walkers, { rain, night: day.night }, this.hero.visible ? this.hero.root.position : null);
     this.ship.update(dt, this.time, day.night);
     for (const built of this.islands.values()) {
       built.update?.(dt, this.time, day);

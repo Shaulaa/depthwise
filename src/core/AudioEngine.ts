@@ -43,6 +43,7 @@ export class AudioEngine {
   private buses: Record<Bus, GainNode> | null = null;
   private echo: GainNode | null = null;
   private engine: GainNode | null = null;
+  private rain: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private muted = false;
   private nextNote = 3;
@@ -105,6 +106,7 @@ export class AudioEngine {
       this.startPad(ctx, music);
       this.startWind(ctx, music);
       this.engine = this.startEngine(ctx, music);
+      this.rain = this.startRain(ctx, sfx);
     } catch {
       this.ctx = null; // Audio is a nicety; the experience works without it.
     }
@@ -152,7 +154,20 @@ export class AudioEngine {
     this.nextNote = this.clock + (2.2 + Math.random() * 3.4) * (1 + night * 0.7) * pace;
   }
 
+  /** Hiss of rain, 0 (dry) to 1 (downpour). */
+  setRain(level: number): void {
+    if (!this.ctx || !this.rain) return;
+    this.rain.gain.setTargetAtTime(clamp(level, 0, 1) * 0.2, this.ctx.currentTime, 0.4);
+  }
+
   // ------------------------------------------------------------ sound effects
+
+  /** Small birds bursting into the air: a whirr of wings and a couple of chirps. */
+  flutter(): void {
+    this.burst(2200 + Math.random() * 800, 0.18, 0.07);
+    this.tone('sine', 3000 + Math.random() * 600, 3900, 0.07, 0.035);
+    this.tone('sine', 3400 + Math.random() * 500, 4300, 0.06, 0.03, 0.11);
+  }
 
   click(): void {
     this.tone('sine', 620, 880, 0.06, 0.07);
@@ -266,10 +281,10 @@ export class AudioEngine {
     }
   }
 
-  private tone(type: OscillatorType, from: number, to: number, duration: number, level: number): void {
+  private tone(type: OscillatorType, from: number, to: number, duration: number, level: number, delay = 0): void {
     const ctx = this.ctx;
     if (!ctx || !this.buses) return;
-    const now = ctx.currentTime;
+    const now = ctx.currentTime + delay;
     const osc = ctx.createOscillator();
     osc.type = type;
     osc.frequency.setValueAtTime(from, now);
@@ -357,6 +372,23 @@ export class AudioEngine {
     gust.start();
     source.connect(filter).connect(gain).connect(out);
     source.start();
+  }
+
+  private startRain(ctx: AudioContext, out: AudioNode): GainNode {
+    const source = ctx.createBufferSource();
+    source.buffer = this.noise;
+    source.loop = true;
+    const high = ctx.createBiquadFilter();
+    high.type = 'highpass';
+    high.frequency.value = 900;
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = 7000;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    source.connect(high).connect(low).connect(gain).connect(out);
+    source.start();
+    return gain;
   }
 
   private startEngine(ctx: AudioContext, out: AudioNode): GainNode {

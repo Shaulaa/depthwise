@@ -19,6 +19,7 @@ export interface UIHandlers {
   exitGame(): void;
   replay(): void;
   cycleTime(): void;
+  cycleWeather(): void;
   toggleSound(): void;
   reset(): void;
   celebrate(): void;
@@ -127,6 +128,7 @@ export class UI {
     $('btn-done').addEventListener('click', () => handlers.exitGame());
     $('btn-again').addEventListener('click', () => handlers.replay());
     $('btn-time').addEventListener('click', () => handlers.cycleTime());
+    $('btn-weather').addEventListener('click', () => handlers.cycleWeather());
     $('btn-sound').addEventListener('click', () => handlers.toggleSound());
     $('btn-stamps').addEventListener('click', () => this.openStamps());
     $('btn-help').addEventListener('click', () => $<HTMLDialogElement>('help').showModal());
