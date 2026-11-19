@@ -117,8 +117,12 @@ export class Airship {
     this.opacity = damp(this.opacity, target, 8, dt);
     if (this.opacity > 0.995) this.opacity = 1;
     const solid = this.opacity === 1;
-    this.material.transparent = !solid;
-    this.material.depthWrite = solid;
+    if (this.material.transparent === solid) {
+      // Three.js bakes opaque output into the shader, so flipping transparency needs a recompile.
+      this.material.transparent = !solid;
+      this.material.depthWrite = solid;
+      this.material.needsUpdate = true;
+    }
     this.material.opacity = this.opacity;
     for (const mesh of this.glows) mesh.visible = this.opacity > 0.6;
   }
