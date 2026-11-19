@@ -5,6 +5,34 @@ const SCALE = [293.66, 329.63, 369.99, 440.0, 493.88, 587.33, 659.25, 739.99, 88
 
 type Bus = 'music' | 'sfx';
 
+export type Mood = 'hub' | 'ubin' | 'rimba' | 'angin' | 'lentera';
+
+interface MoodSettings {
+  /** Notes the wandering melody picks from, low to high. */
+  scale: readonly number[];
+  /** Three pitches the background pad holds. */
+  pad: readonly [number, number, number];
+  /** Multiplies the gap between melody notes: above 1 is slower. */
+  pace: number;
+}
+
+/**
+ * Each island has its own colour of music. Only the melody and the pad follow it; game sounds
+ * keep the harbour scale so their tones stay consistent everywhere.
+ */
+const MOODS: Record<Mood, MoodSettings> = {
+  // Bright and open: D major pentatonic.
+  hub: { scale: SCALE, pad: [146.83, 220.0, 369.99], pace: 1 },
+  // Old stone, a little solemn: D minor pentatonic.
+  ubin: { scale: [293.66, 349.23, 392.0, 440.0, 523.25, 587.33, 698.46, 783.99, 880.0], pad: [146.83, 220.0, 349.23], pace: 1.15 },
+  // Hushed and mysterious: A minor with a flat sixth, low and slow.
+  rimba: { scale: [220.0, 246.94, 261.63, 329.63, 349.23, 440.0, 493.88, 523.25, 659.25], pad: [110.0, 164.81, 261.63], pace: 1.6 },
+  // Breezy and quick: G lydian.
+  angin: { scale: [392.0, 440.0, 493.88, 554.37, 587.33, 659.25, 739.99, 783.99, 880.0], pad: [196.0, 293.66, 493.88], pace: 0.6 },
+  // Temple bells: a pentatonic in the miyako-bushi style.
+  lentera: { scale: [293.66, 311.13, 392.0, 440.0, 466.16, 587.33, 622.25, 783.99, 880.0], pad: [146.83, 220.0, 293.66], pace: 1.3 },
+};
+
 /**
  * Everything you hear is synthesised here with the Web Audio API: a drifting pad, wind,
  * a sparse generative melody, the airship engine and all sound effects. No audio files.
@@ -20,6 +48,9 @@ export class AudioEngine {
   private nextNote = 3;
   private degree = 3;
   private clock = 0;
+  private mood: Mood = 'hub';
+  /** The pad's oscillators, two detuned voices per pitch. */
+  private readonly padVoices: { osc: OscillatorNode; voice: number }[] = [];
 
   /** Call from a user gesture; browsers refuse to start audio otherwise. */
   start(): void {
@@ -94,6 +125,18 @@ export class AudioEngine {
     void this.ctx?.resume();
   }
 
+  /** Change the music to suit an island. Safe to call every frame. */
+  setMood(mood: Mood): void {
+    if (mood === this.mood) return;
+    this.mood = mood;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const pad = MOODS[mood].pad;
+    // Glide the pad over a couple of seconds so the change feels like weather, not a cut.
+    for (const { osc, voice } of this.padVoices) osc.frequency.setTargetAtTime(pad[voice] as number, ctx.currentTime, 1.2);
+    this.nextNote = Math.min(this.nextNote, this.clock + 0.6);
+  }
+
   /** Drives the generative melody and the engine hum. */
   update(dt: number, night: number, shipSpeed: number): void {
     if (!this.ctx || !this.engine) return;
@@ -102,10 +145,11 @@ export class AudioEngine {
 
     if (this.clock < this.nextNote) return;
     // Wander up and down the scale; nights are slower and sit lower.
-    this.degree = clamp(this.degree + Math.round((Math.random() - 0.5) * 4), 0, SCALE.length - 1);
+    const { scale, pace } = MOODS[this.mood];
+    this.degree = clamp(this.degree + Math.round((Math.random() - 0.5) * 4), 0, scale.length - 1);
     const octave = night > 0.6 ? 0.5 : 1;
-    this.bell((SCALE[this.degree] as number) * octave, 0.05, 2.4, 'music');
-    this.nextNote = this.clock + (2.2 + Math.random() * 3.4) * (1 + night * 0.7);
+    this.bell((scale[this.degree] as number) * octave, 0.05, 2.4, 'music');
+    this.nextNote = this.clock + (2.2 + Math.random() * 3.4) * (1 + night * 0.7) * pace;
   }
 
   // ------------------------------------------------------------ sound effects
@@ -282,7 +326,7 @@ export class AudioEngine {
     sweep.connect(depth).connect(filter.frequency);
     sweep.start();
 
-    for (const frequency of [146.83, 220.0, 369.99]) {
+    MOODS[this.mood].pad.forEach((frequency, voice) => {
       for (const detune of [-6, 7]) {
         const osc = ctx.createOscillator();
         osc.type = 'triangle';
@@ -290,8 +334,9 @@ export class AudioEngine {
         osc.detune.value = detune;
         osc.connect(filter);
         osc.start();
+        this.padVoices.push({ osc, voice });
       }
-    }
+    });
   }
 
   private startWind(ctx: AudioContext, out: AudioNode): void {

@@ -51,7 +51,15 @@ Di layar sentuh ada joystick di kiri bawah. Tombol di kanan bawah dipakai buat n
 | TJA | Tanjung Angin | **Balap Cincin**: kemudikan kapal melewati cincin dengan mouse, sentuhan, atau WASD. |
 | BKL | Bukit Lentera | **Nyanyian Lentera**: ulangi urutan nyala lentera. Klik lenteranya atau tekan 1 sampai 5. |
 
-Progres (cap, rekor, pengaturan suara) disimpan di `localStorage` browser dan bisa dihapus dari buku cap.
+## Warga, bulu angin, dan kostum
+
+- **Warga pulau.** Enam warga tinggal di kepulauan: Pak Bayu dan Laras di Labuan Fajar, lalu satu warga di tiap pulau lain. Mereka jalan-jalan santai, menoleh kalau didekati, dan bisa diajak ngobrol dengan `E`. Isi obrolannya mengikuti progresmu, misalnya rekor permainan atau jumlah bulu yang terkumpul.
+- **Bulu angin.** Tiap pulau menyimpan tiga bulu angin (15 total). Satu di antaranya melayang agak tinggi, jadi perlu lompat buat mengambilnya.
+- **Kostum.** Tiap cap membuka satu warna jaket dan syal baru, dan kostum Bulu Angin terbuka setelah semua bulu terkumpul. Ganti kostum lewat buku cap.
+- **Penunjuk arah.** Kalau titik main di luar layar, muncul penunjuk arah di tepi layar lengkap dengan jaraknya.
+- **Musik.** Musik latar berganti nuansa mengikuti pulau terdekat.
+
+Progres (cap, rekor, bulu angin, kostum, pengaturan suara) disimpan di `localStorage` browser dan bisa dihapus dari buku cap.
 
 ## Struktur kode
 
@@ -74,6 +82,9 @@ Beberapa catatan teknis:
 - **Air** dan **langit** adalah shader sendiri yang warnanya mengikuti siklus siang-malam.
 - **Terbang bebas** (`world/Flight.ts`) memberi kapal inersia dan menahannya keluar dari pulau, mercusuar, dan pulau kecil. Rute otomatis dari peta adalah `CatmullRomCurve3` yang dijalankan GSAP.
 - **Jalan kaki** (`world/Walk.ts`) memakai tinggi tanah analitik pulau, ditambah lingkaran rintangan (rumah, pohon, tiang) dan lantai datar (dermaga, pelataran ubin). Karakternya (`world/Character.ts`) dirakit dari bentuk dasar dan dianimasikan lewat kode. Kapal jadi tembus pandang kalau menghalangi kamera.
+- **Warga** (`world/Npc.ts`) memakai `Character` dan `Walker` yang sama dengan pemain, jadi mereka juga menghindari rumah dan pohon. Dialog dan data kostum ada di `content.ts`.
+- **Kamera jalan kaki** maju ke depan pohon atau bangunan yang menghalangi karakter, lalu mundur pelan setelah pandangan bersih.
+- **Pemuatan:** Three.js dan GSAP dipisah ke chunk `vendor` supaya tetap ter-cache antar deploy, sedangkan tiap permainan mini baru diunduh waktu dimainkan (atau saat karakter berdiri di titik mainnya).
 - **Audio** disintesis dengan Web Audio API (`core/AudioEngine.ts`).
 - Resolusi render turun otomatis kalau frame rate tidak terkejar.
 

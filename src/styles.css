@@ -729,7 +729,8 @@ body[data-mode='fly'] .pin__card {
   }
 
   .prompt__key,
-  .btn__key {
+  .btn__key,
+  .talk__key {
     display: none;
   }
 
@@ -796,6 +797,145 @@ body[data-mode='fly'] .pin__card {
   .prompt {
     bottom: calc(var(--gutter) + 156px + env(safe-area-inset-bottom));
   }
+}
+
+/* ------------------------------------------------------------ islanders and guide */
+
+.talk {
+  position: fixed;
+  bottom: calc(var(--gutter) * 2 + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 6;
+  display: grid;
+  gap: 6px;
+  width: min(560px, calc(100vw - 2 * var(--gutter)));
+  padding: 16px 20px 14px;
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+  animation: talk 0.4s var(--ease) both;
+}
+
+.talk[hidden] {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  /* Sit above the joystick and the jump button. */
+  .talk {
+    bottom: calc(var(--gutter) + 156px + env(safe-area-inset-bottom));
+  }
+}
+
+@keyframes talk {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px);
+  }
+}
+
+/* The little tail that makes it a speech bubble. */
+.talk::after {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  background: var(--paper);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.talk__who {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.talk__who b {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+.talk__who span {
+  color: var(--stamp);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.talk__text {
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.talk__next {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+  padding: 4px 4px 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.talk__next:hover {
+  color: var(--ink);
+}
+
+.talk__key {
+  min-width: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.guide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 999px;
+  background: rgba(20, 26, 56, 0.66);
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  will-change: transform;
+}
+
+.guide[hidden] {
+  display: none;
+}
+
+.guide__arrow {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+/* A small right-pointing triangle; the parent's rotation aims it. */
+.guide__arrow::before {
+  content: '';
+  width: 8px;
+  height: 10px;
+  margin-left: 2px;
+  background: var(--ink);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 
 /* ------------------------------------------------------------ island ticket */
@@ -1426,6 +1566,114 @@ body[data-mode='fly'] .pin__card {
 .stamps__meta {
   font-size: 13px;
   color: var(--ink-soft);
+}
+
+/* Feathers and costumes, below the stamps. */
+.extras {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--line);
+}
+
+.extras__feathers {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-soft);
+}
+
+.extras__feathers b {
+  color: var(--ink);
+}
+
+.extras__quill {
+  width: 10px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #bfeeff, #6cc6ff);
+  transform: rotate(28deg);
+}
+
+.extras__title {
+  margin-top: 16px;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+.outfits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.outfit {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 8px 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    transform 0.25s var(--ease);
+}
+
+.outfit:hover:not(:disabled) {
+  border-color: var(--ink);
+  transform: translateY(-2px);
+}
+
+.outfit[aria-pressed='true'] {
+  border-color: var(--stamp);
+  box-shadow: inset 0 0 0 1px var(--stamp);
+}
+
+.outfit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Two overlapping discs: jacket behind, scarf in front. */
+.outfit__swatch {
+  position: relative;
+  width: 46px;
+  height: 34px;
+}
+
+.outfit__swatch i {
+  position: absolute;
+  top: 0;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.outfit__swatch i:first-child {
+  left: 0;
+}
+
+.outfit__swatch i:last-child {
+  right: 0;
+}
+
+.outfit__name {
+  font-weight: 650;
+  text-align: center;
+}
+
+.outfit__lock {
+  color: var(--ink-soft);
+  font-size: 12px;
+  text-align: center;
 }
 
 .sheet__foot {

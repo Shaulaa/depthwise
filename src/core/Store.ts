@@ -15,11 +15,26 @@ export interface SaveData {
   muted: boolean;
   /** The finale has played once already, so it no longer starts on its own. */
   celebrated: boolean;
+  /** Wind feathers picked up, as "<island>-<index>". */
+  feathers: string[];
+  /** Costume the sky sailor wears. */
+  outfit: string;
 }
 
 const KEY = 'depthwise:v1';
 
-const emptySave = (): SaveData => ({ stamps: [], records: {}, muted: false, celebrated: false });
+export const DEFAULT_OUTFIT = 'pelaut';
+const FEATHER_ID = /^(hub|ubin|rimba|angin|lentera)-\d$/;
+const OUTFIT_ID = /^[a-z]{1,16}$/;
+
+const emptySave = (): SaveData => ({
+  stamps: [],
+  records: {},
+  muted: false,
+  celebrated: false,
+  feathers: [],
+  outfit: DEFAULT_OUTFIT,
+});
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
@@ -34,6 +49,12 @@ export function sanitizeSave(raw: unknown): SaveData {
   }
   save.muted = raw.muted === true;
   save.celebrated = raw.celebrated === true;
+  if (Array.isArray(raw.feathers)) {
+    for (const id of raw.feathers) {
+      if (typeof id === 'string' && FEATHER_ID.test(id) && !save.feathers.includes(id)) save.feathers.push(id);
+    }
+  }
+  if (typeof raw.outfit === 'string' && OUTFIT_ID.test(raw.outfit)) save.outfit = raw.outfit;
 
   const r = isObject(raw.records) ? raw.records : {};
   if (isObject(r.ubin) && isFiniteNumber(r.ubin.moves) && isFiniteNumber(r.ubin.time)) {
@@ -93,6 +114,28 @@ export class Store {
 
   set celebrated(value: boolean) {
     this.data.celebrated = value;
+    this.write();
+  }
+
+  get feathers(): readonly string[] {
+    return this.data.feathers;
+  }
+
+  /** Returns true when the feather was not picked up before. */
+  addFeather(id: string): boolean {
+    if (!FEATHER_ID.test(id) || this.data.feathers.includes(id)) return false;
+    this.data.feathers.push(id);
+    this.write();
+    return true;
+  }
+
+  get outfit(): string {
+    return this.data.outfit;
+  }
+
+  set outfit(id: string) {
+    if (!OUTFIT_ID.test(id)) return;
+    this.data.outfit = id;
     this.write();
   }
 

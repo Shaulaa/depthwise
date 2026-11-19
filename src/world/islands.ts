@@ -33,6 +33,8 @@ export interface WalkData {
   blockers: Blocker[];
   platforms: Platform[];
   stairs: Stair[];
+  /** Collectable wind feathers, world space; the id of each is "<island>-<index>". */
+  feathers: THREE.Vector3[];
   /** Where the character steps onto the pier from the ship. */
   pier: THREE.Vector3;
   /** Glowing spot that starts the island's game (or opens the stamp book at the harbour). */
@@ -722,6 +724,21 @@ const LAYOUTS: readonly Layout[] = [
   },
 ];
 
+/** Feathers per island; the last one floats high enough that it takes a jump. */
+const FEATHERS = 3;
+
+/** Scatter the island's wind feathers on open ground, clear of everything solid and of the game spot. */
+function placeFeathers(built: BuiltIsland, avoid: { x: number; z: number; r: number }[], rng: Rng): void {
+  const g = built.group.position;
+  const keepOut = [
+    ...avoid,
+    ...built.walk.blockers.map((b) => ({ x: b.x, z: b.z, r: b.r + 1 })),
+    { x: built.walk.station.x - g.x, z: built.walk.station.z - g.z, r: 4 },
+  ];
+  const spots = built.island.scatter(rng, FEATHERS, { avoid: keepOut, margin: 0.14, spacing: 9, minFlatness: 0.75 });
+  built.walk.feathers = spots.map((p, i) => new THREE.Vector3(p.x, p.y + (i === FEATHERS - 1 ? 2.3 : 1.05), p.z).add(g));
+}
+
 function buildIsland(layout: Layout, pixelRatio: number): BuiltIsland {
   const island = new Island(layout.shape);
   const group = new THREE.Group();
@@ -763,6 +780,7 @@ function buildIsland(layout: Layout, pixelRatio: number): BuiltIsland {
       platforms: [{ x: deck.x, z: deck.z, ry: -theta, hx: 4.7, hz: 1.15, y: 0.61 }],
       blockers: [],
       stairs: [],
+      feathers: [],
       pier: group.position.clone().add(new THREE.Vector3(landing.x, 0.61, landing.z)),
       station: group.position.clone(),
     },
@@ -794,6 +812,8 @@ function buildIsland(layout: Layout, pixelRatio: number): BuiltIsland {
       avoid.push({ x, z, r: 2.4 }); // keep trees and rocks off the glowing spot
     },
   });
+
+  placeFeathers(built, avoid, mulberry32(layout.shape.seed * 313 + 5));
 
   group.add(kit.solid.mesh(solidMat));
   if (!kit.window.empty) group.add(new THREE.Mesh(kit.window.geometry(), windowGlow));

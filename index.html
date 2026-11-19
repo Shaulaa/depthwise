@@ -93,19 +93,32 @@
         <div><dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>jalan</dd></div>
         <div><dt><kbd>Shift</kbd></dt><dd>lari</dd></div>
         <div><dt><kbd>Spasi</kbd></dt><dd>lompat</dd></div>
-        <div><dt><kbd>E</kbd></dt><dd>main / naik kapal</dd></div>
+        <div><dt><kbd>E</kbd></dt><dd>main / ngobrol / naik kapal</dd></div>
       </dl>
       <button class="prompt" id="prompt" type="button" hidden>
         <span class="prompt__code" id="prompt-code">UBN</span>
         <span class="prompt__text"><span id="prompt-lead">Singgah di</span> <b id="prompt-name">Pulau Ubin</b></span>
         <kbd class="prompt__key">E</kbd>
       </button>
+      <!-- Points the way to the island's game spot while it is off screen. -->
+      <div class="guide" id="guide" aria-hidden="true" hidden>
+        <span class="guide__arrow" id="guide-arrow"></span>
+        <span class="guide__label" id="guide-label">Titik main</span>
+      </div>
       <div class="stick" id="stick" aria-hidden="true"><i class="stick__knob" id="stick-knob"></i></div>
       <div class="lift" aria-hidden="true">
         <button class="lift__btn" id="lift-up" type="button" tabindex="-1">&#9650;</button>
         <button class="lift__btn" id="lift-down" type="button" tabindex="-1">&#9660;</button>
       </div>
     </section>
+
+    <div class="talk" id="talk" role="dialog" aria-labelledby="talk-name" aria-describedby="talk-text" hidden>
+      <p class="talk__who"><b id="talk-name">Pak Bayu</b><span id="talk-role">Syahbandar</span></p>
+      <p class="talk__text" id="talk-text" aria-live="polite"></p>
+      <button class="talk__next" id="talk-next" type="button">
+        <span id="talk-next-label">Lanjut</span><kbd class="talk__key">E</kbd>
+      </button>
+    </div>
 
     <aside class="ticket layer" id="ticket" aria-labelledby="ticket-name">
       <div class="ticket__paper">
@@ -175,6 +188,13 @@
       <h2 class="sheet__title" id="stampbook-title">Buku cap</h2>
       <p class="sheet__lead" id="stampbook-lead"></p>
       <ol class="stamps" id="stamps"></ol>
+      <div class="extras">
+        <p class="extras__feathers">
+          <span class="extras__quill" aria-hidden="true"></span>Bulu angin terkumpul <b id="feather-count">0/15</b>
+        </p>
+        <h3 class="extras__title">Kostum</h3>
+        <ul class="outfits" id="outfits" aria-label="Pilih kostum"></ul>
+      </div>
       <div class="sheet__foot">
         <p class="credit">Depthwise dibuat oleh <span id="credit-name"></span> dengan Three.js.</p>
         <div class="sheet__buttons">
@@ -192,7 +212,7 @@
         <div><dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></dt><dd>Di kapal: maju, mundur, belok. Di pulau: jalan. Tombol panah juga bisa.</dd></div>
         <div><dt><kbd>Spasi</kbd></dt><dd>Di kapal: naik. Di pulau: lompat.</dd></div>
         <div><dt><kbd>Shift</kbd></dt><dd>Di kapal: turun. Di pulau: lari.</dd></div>
-        <div><dt><kbd>E</kbd></dt><dd>Singgah di pulau terdekat, mulai main di titik bercahaya, atau naik kapal lagi.</dd></div>
+        <div><dt><kbd>E</kbd></dt><dd>Singgah di pulau terdekat, mulai main di titik bercahaya, ngobrol dengan warga, atau naik kapal lagi.</dd></div>
         <div><dt>Seret / gulir</dt><dd>Lihat sekeliling, dekatkan atau jauhkan kamera.</dd></div>
         <div><dt><kbd>M</kbd></dt><dd>Peta kepulauan. Klik pulau buat terbang otomatis ke sana.</dd></div>
         <div><dt><kbd>T</kbd></dt><dd>Ganti waktu: pagi, siang, senja, malam.</dd></div>
@@ -200,7 +220,7 @@
       </dl>
       <p class="sheet__lead">
         Tiap pulau selain pelabuhan punya satu permainan yang ditandai cahaya keemasan. Menangkan permainannya buat dapat
-        cap di buku cap. Kumpulkan
+        cap di buku cap. Tiap pulau juga menyimpan tiga bulu angin, dan cap serta bulu membuka kostum baru. Kumpulkan
         keempatnya dan lihat apa yang terjadi di Labuan Fajar.
       </p>
     </dialog>

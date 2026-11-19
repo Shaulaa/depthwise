@@ -24,6 +24,21 @@ export interface UIHandlers {
   celebrate(): void;
   /** A map pin gained or lost pointer/keyboard focus. */
   hover(id: IslandId | null): void;
+  /** Move a conversation on to its next line, or end it after the last. */
+  talkNext(): void;
+  /** Put on a costume. */
+  wear(id: string): void;
+}
+
+/** A costume as the stamp book shows it. */
+export interface OutfitChoice {
+  id: string;
+  name: string;
+  jacket: string;
+  scarf: string;
+  unlocked: boolean;
+  /** How to unlock it, shown while it is still locked. */
+  hint: string;
 }
 
 /** A one-key action offered at the bottom of the screen. */
@@ -81,6 +96,8 @@ export class UI {
   /** On-screen stick and lift buttons for touch screens, each axis in -1..1. */
   readonly touch = { x: 0, y: 0, lift: 0 };
   private promptKey = '';
+  private guideLabel = '';
+  private guideHalf = { x: 0, y: 0 };
   private controlsTimer = 0;
 
   private readonly layers = Object.fromEntries(LAYERS.map((name) => [name, $(name)])) as Record<Layer, HTMLElement>;
@@ -118,6 +135,7 @@ export class UI {
       handlers.celebrate();
     });
     $('btn-reset').addEventListener('click', () => this.confirmReset());
+    $('talk-next').addEventListener('click', () => handlers.talkNext());
 
     // Clicking the dimmed backdrop closes a dialog, as people expect.
     for (const dialog of document.querySelectorAll('dialog')) {
@@ -320,6 +338,47 @@ export class UI {
     prompt.classList.add('is-pop');
   }
 
+  // ------------------------------------------------------------ islanders
+
+  /** Show one line of a conversation. `last` changes the button from "next" to "done". */
+  showTalk(name: string, role: string, text: string, last: boolean): void {
+    $('talk-name').textContent = name;
+    $('talk-role').textContent = role;
+    $('talk-text').textContent = text;
+    $('talk-next-label').textContent = last ? 'Selesai' : 'Lanjut';
+    const talk = $('talk');
+    talk.hidden = false;
+    talk.style.animation = 'none';
+    void talk.offsetWidth; // replay the entrance for every new line
+    talk.style.animation = '';
+  }
+
+  hideTalk(): void {
+    $('talk').hidden = true;
+  }
+
+  /**
+   * Pin the guide chip to a screen position, with its arrow turned towards the target.
+   * Pass null to hide it.
+   */
+  setGuide(at: { x: number; y: number; angle: number; label: string } | null): void {
+    const guide = $('guide');
+    guide.hidden = at === null;
+    if (!at) return;
+    if (at.label !== this.guideLabel) {
+      this.guideLabel = at.label;
+      $('guide-label').textContent = at.label;
+      // Measured only when the text changes, so moving the chip never forces a layout.
+      this.guideHalf = { x: guide.offsetWidth / 2, y: guide.offsetHeight / 2 };
+    }
+    $('guide-arrow').style.transform = `rotate(${at.angle.toFixed(3)}rad)`;
+    // Keep the whole chip on screen, whatever its label length.
+    const margin = 10;
+    const x = Math.min(Math.max(at.x, this.guideHalf.x + margin), window.innerWidth - this.guideHalf.x - margin);
+    const y = Math.min(Math.max(at.y, this.guideHalf.y + margin), window.innerHeight - this.guideHalf.y - margin);
+    guide.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -50%)`;
+  }
+
   /** Slide the island ticket in or out while walking around. */
   setTicket(open: boolean): void {
     this.layers.ticket.classList.toggle('is-on', open);
@@ -422,6 +481,42 @@ export class UI {
         meta.textContent = done ? (recordText(id, records) ?? 'Selesai') : (info.game?.title ?? '');
         slot.append(seal, name, meta);
         return slot;
+      }),
+    );
+  }
+
+  /** Feather count and the costume picker in the stamp book. */
+  renderExtras(feathers: number, total: number, outfits: readonly OutfitChoice[], current: string): void {
+    $('feather-count').textContent = `${feathers}/${total}`;
+    $('outfits').replaceChildren(
+      ...outfits.map((outfit) => {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'outfit';
+        button.disabled = !outfit.unlocked;
+        button.setAttribute('aria-pressed', String(outfit.id === current));
+        const swatch = document.createElement('span');
+        swatch.className = 'outfit__swatch';
+        swatch.setAttribute('aria-hidden', 'true');
+        for (const color of [outfit.jacket, outfit.scarf]) {
+          const disc = document.createElement('i');
+          disc.style.background = color;
+          swatch.append(disc);
+        }
+        const name = document.createElement('span');
+        name.className = 'outfit__name';
+        name.textContent = outfit.name;
+        button.append(swatch, name);
+        if (!outfit.unlocked) {
+          const lock = document.createElement('span');
+          lock.className = 'outfit__lock';
+          lock.textContent = outfit.hint;
+          button.append(lock);
+        }
+        button.addEventListener('click', () => this.handlers.wear(outfit.id));
+        item.append(button);
+        return item;
       }),
     );
   }

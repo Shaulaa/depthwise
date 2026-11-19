@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { IslandId } from '../content';
+import { NPCS, type IslandId, type NpcInfo } from '../content';
 import { DayNight } from '../core/DayNight';
 import { clamp } from '../core/math';
 import { Airship } from './Airship';
@@ -7,6 +7,10 @@ import { Birds, Fireworks } from './ambient';
 import { Beacon } from './Beacon';
 import { Character } from './Character';
 import { Clouds } from './Clouds';
+import { Dust } from './Dust';
+import { Feathers } from './Feathers';
+import { Npc } from './Npc';
+import { groundAt, pushOutOfBlockers, type WalkArea } from './Walk';
 import { buildIslands, type BuiltIsland } from './islands';
 import { shared, updateGlows } from './materials';
 import { Sky } from './Sky';
@@ -25,6 +29,10 @@ export class World {
   readonly hero = new Character();
   /** One game spot per island. */
   readonly beacons = new Map<IslandId, Beacon>();
+  /** Islanders, each living on one island. */
+  readonly npcs: Npc[] = [];
+  readonly feathers: Feathers;
+  readonly dust = new Dust();
 
   private readonly fog = new THREE.FogExp2('#bcdcf4', 0.0011);
   private readonly sun = new THREE.DirectionalLight('#ffffff', 3);
@@ -56,10 +64,53 @@ export class World {
       this.beacons.set(built.id, beacon);
       this.scene.add(beacon.group);
     }
-    this.scene.add(this.hero.root);
+    this.scene.add(this.hero.root, this.dust.mesh);
+
+    this.feathers = new Feathers([...this.islands.values()].map((built) => ({ island: built.id, points: built.walk.feathers })));
+    this.scene.add(this.feathers.group);
+
+    for (const info of NPCS) {
+      const built = this.island(info.island);
+      const { home, yaw } = this.npcHome(built, info);
+      const npc = new Npc(info, World.walkArea(built), built.group.position, home, yaw);
+      this.npcs.push(npc);
+      this.scene.add(npc.figure.root);
+    }
 
     const home = this.island('hub');
     this.ship.moor(home.dock.position, home.dock.yaw);
+  }
+
+  /** What a character needs to walk around an island. */
+  static walkArea(built: BuiltIsland): WalkArea {
+    const { blockers, platforms, stairs } = built.walk;
+    return { ground: built.island, blockers, platforms, stairs };
+  }
+
+  /** Turn an islander's home description into a clear spot on the ground, facing the island's middle. */
+  private npcHome(built: BuiltIsland, info: NpcInfo): { home: THREE.Vector3; yaw: number } {
+    const g = built.group.position;
+    const anchor = info.home.from === 'pier' ? built.walk.pier : built.walk.station;
+    const inward = new THREE.Vector3(g.x - anchor.x, 0, g.z - anchor.z);
+    if (inward.lengthSq() < 1e-6) inward.set(0, 0, 1);
+    inward.normalize();
+    const local = {
+      x: anchor.x - g.x + inward.x * info.home.towards - inward.z * info.home.side,
+      z: anchor.z - g.z + inward.z * info.home.towards + inward.x * info.home.side,
+    };
+    const area = World.walkArea(built);
+    pushOutOfBlockers(area, local, 0.6);
+    if (groundAt(area, local.x, local.z) === null) {
+      local.x = anchor.x - g.x;
+      local.z = anchor.z - g.z;
+    }
+    const home = new THREE.Vector3(local.x + g.x, 0, local.z + g.z);
+    return { home, yaw: Math.atan2(inward.x, inward.z) };
+  }
+
+  /** Islanders standing on an island. */
+  npcsOn(id: IslandId): Npc[] {
+    return this.npcs.filter((npc) => npc.info.island === id);
   }
 
   beacon(id: IslandId): Beacon {
@@ -109,6 +160,8 @@ export class World {
     this.clouds.update(dt, day);
     this.birds.update(dt, this.time);
     this.fireworks.update(dt);
+    this.feathers.update(this.time, day.night);
+    this.dust.update(dt);
     this.ship.update(dt, this.time, day.night);
     for (const built of this.islands.values()) {
       built.update?.(dt, this.time, day);

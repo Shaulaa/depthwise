@@ -4,19 +4,21 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { ISLANDS, islandInfo, type IslandId } from './content';
+import { ISLANDS, OUTFITS, islandInfo, outfitUnlocked, unlockText, type IslandId, type Progress } from './content';
 import { AudioEngine } from './core/AudioEngine';
 import { CameraRig, type RigLimits } from './core/CameraRig';
 import { PHASES, clockLabel, phaseLabel } from './core/DayNight';
 import { Input, type PointerInfo } from './core/Input';
 import { clamp, damp, shortestAngle } from './core/math';
-import { Store, type GameId } from './core/Store';
-import { createGame, type GameOutcome, type MiniGame } from './games';
+import { DEFAULT_OUTFIT, Store, type GameId } from './core/Store';
+import { createGame, prefetchGame, type GameOutcome, type MiniGame } from './games';
 import { UI, recordText, type Mode, type Prompt } from './ui/UI';
 import type { BuiltIsland } from './world/islands';
 import { Flight, resolveCollisions, type FlightInput } from './world/Flight';
-import { Walker, type WalkArea, type WalkInput } from './world/Walk';
+import { NPC_RADIUS, type Npc } from './world/Npc';
+import { BODY_RADIUS, Walker, groundAt, type WalkInput } from './world/Walk';
 import { World } from './world/World';
+import { foliageMat, solidMat } from './world/materials';
 
 const MAP_TARGET = new THREE.Vector3(0, 14, 14);
 const MAP_LIMITS: RigLimits = { minPhi: 0.35, maxPhi: 1.36, minRadius: 150, maxRadius: 540 };
@@ -35,6 +37,12 @@ const WALK_CAMERA_HULL = { side: 0.5, above: 0.9, below: 1 };
 /** How close the character must be to the glowing spot, or to the end of the pier, to use it. */
 const STATION_RANGE = 2.4;
 const BOARD_RANGE = 2.6;
+/** Close enough to an islander to start a conversation. */
+const TALK_RANGE = 2.2;
+/** How far apart two people stand while talking. */
+const TALK_DISTANCE = 1.7;
+/** The guide chip only appears when the game spot is further than this and off screen. */
+const GUIDE_DISTANCE = 7;
 /** Farthest the character will jump to reach the gondola; beyond this it vanishes instead. */
 const LEAP_REACH = 7;
 /** Rises smaller than this (a stair tread, a kerb) are eased rather than snapped. */
@@ -80,9 +88,15 @@ export class App {
   private atPier = false;
   private liftHeld = false;
   private stepClock = 0;
+  /** The islander within talking range, if any. */
+  private nearNpc: Npc | null = null;
+  /** The conversation on screen: who, what they say, and which line is showing. */
+  private talk: { npc: Npc; lines: string[]; index: number } | null = null;
   /** Control schemes the player has already been shown, so later reminders can be brief. */
   private readonly schemesSeen = new Set<'fly' | 'walk'>();
   private game: MiniGame | null = null;
+  /** Counts game launches, so a game that finishes downloading too late can tell it is stale. */
+  private launches = 0;
   private gameOver = false;
   private trip: { started: number; duration: number } | null = null;
   private pixelRatio: number;
@@ -95,6 +109,12 @@ export class App {
   private readonly framing = { x: 0, y: 0 };
   private readonly scratch = new THREE.Vector3();
   private readonly ndc = new THREE.Vector2();
+  /** Per island: tree crowns and buildings the walking camera must not hide behind. */
+  private readonly occluders = new Map<IslandId, THREE.Object3D[]>();
+  /** How far the walking camera may currently sit from the character before something blocks the view. */
+  private viewReach = Infinity;
+  /** Point between the player and an islander, which the camera orbits during a conversation. */
+  private readonly talkFocus = new THREE.Object3D();
 
   constructor(canvas: HTMLCanvasElement) {
     this.ui = new UI({
@@ -111,6 +131,8 @@ export class App {
       reset: () => this.reset(),
       celebrate: () => this.requestCelebration(),
       hover: (id) => this.ui.highlightPin(id),
+      talkNext: () => this.talkNext(),
+      wear: (id) => this.wear(id),
     });
 
     const coarse = window.matchMedia('(pointer: coarse)').matches;
@@ -126,6 +148,13 @@ export class App {
 
     this.world = new World(this.pixelRatio);
     this.flight = new Flight(this.world.ship, this.world.islands);
+    for (const built of this.world.islands.values()) {
+      const list: THREE.Object3D[] = [];
+      for (const child of built.group.children) {
+        if (child instanceof THREE.Mesh && (child.material === foliageMat || child.material === solidMat)) list.push(child);
+      }
+      this.occluders.set(built.id, list);
+    }
 
     // HDR target with MSAA: lights can exceed 1.0 and the bloom pass turns the excess into glow.
     const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
@@ -157,6 +186,8 @@ export class App {
     this.rig.limits = { minPhi: 0.5, maxPhi: 1.45, minRadius: 50, maxRadius: 82 };
     this.setFraming('title', 0);
 
+    this.world.feathers.restore(this.store.feathers);
+    this.wear(this.store.outfit, false);
     this.syncProgress();
     this.ui.setSound(this.store.muted);
     this.ui.setMode('title');
@@ -186,6 +217,8 @@ export class App {
 
   private openMap(): void {
     if (this.mode !== 'island' && this.mode !== 'fly') return;
+    this.endTalk();
+    this.ui.setGuide(null);
     this.mapReturn = this.mode;
     this.ui.setPrompt(null);
     this.mode = 'map';
@@ -245,8 +278,142 @@ export class App {
       return;
     }
     if (this.mode !== 'island' || this.boarding) return;
-    if (this.atStation) this.play();
+    if (this.talk) this.talkNext();
+    else if (this.atStation) this.play();
+    else if (this.nearNpc) this.startTalk(this.nearNpc);
     else if (this.atPier) this.board();
+  }
+
+  // ------------------------------------------------------------ islanders
+
+  private progress(): Progress {
+    return {
+      stamps: this.store.stamps,
+      feathers: this.store.feathers.length,
+      featherTotal: this.world.feathers.total,
+      record: (id) => recordText(id, this.store.records),
+    };
+  }
+
+  private startTalk(npc: Npc): void {
+    this.talk = { npc, lines: npc.info.lines(this.progress()), index: -1 };
+    npc.talking = true;
+    this.ui.setPrompt(null);
+    this.ui.setGuide(null);
+
+    // Step back to a comfortable distance (when there is ground there), then face each other.
+    let dx = npc.position.x - this.walker.position.x;
+    let dz = npc.position.z - this.walker.position.z;
+    const gap = Math.hypot(dx, dz);
+    if (gap > 1e-3 && gap < TALK_DISTANCE) {
+      const built = this.world.island(this.current);
+      const g = built.group.position;
+      const x = npc.position.x - (dx / gap) * TALK_DISTANCE;
+      const z = npc.position.z - (dz / gap) * TALK_DISTANCE;
+      const ground = groundAt(World.walkArea(built), x - g.x, z - g.z);
+      if (ground !== null && Math.abs(ground + g.y - this.walker.position.y) < 0.5) {
+        this.walker.position.set(x, ground + g.y, z);
+        dx = npc.position.x - x;
+        dz = npc.position.z - z;
+      }
+    }
+    // Swing the camera side-on so both faces are in the shot.
+    this.walker.yaw = Math.atan2(dx, dz);
+    this.world.hero.place(this.walker.position, this.walker.yaw);
+    // Of the two side-on angles, take the one with the fewest trees and walls where the camera would sit.
+    const side = Math.atan2(dz, -dx);
+    const radius = 7.5;
+    const phi = 1.28;
+    const crowding = (theta: number): number => {
+      const built = this.world.island(this.current);
+      const g = built.group.position;
+      const reach = Math.sin(phi) * radius;
+      let score = 0;
+      for (const f of [0.45, 0.75, 1]) {
+        const cx = this.walker.position.x + dx / 2 + Math.sin(theta) * reach * f - g.x;
+        const cz = this.walker.position.z + dz / 2 + Math.cos(theta) * reach * f - g.z;
+        for (const b of built.walk.blockers) if (Math.hypot(cx - b.x, cz - b.z) < b.r + 2.2) score += f;
+      }
+      return score;
+    };
+    const facing = Math.abs(shortestAngle(this.rig.goal.theta, side)) < Math.PI / 2 ? side : side + Math.PI;
+    const other = facing + Math.PI;
+    const theta = crowding(other) < crowding(facing) ? other : facing;
+    // Frame the pair rather than just the player: orbit the point between them.
+    this.talkFocus.position.set(this.walker.position.x + dx / 2, this.walker.position.y + 1.05, this.walker.position.z + dz / 2);
+    this.rig.follow = this.talkFocus;
+    void this.rig.flyTo({ theta, phi, radius }, 0.9, WALK_LIMITS);
+    this.talkNext();
+  }
+
+  private talkNext(): void {
+    const talk = this.talk;
+    if (!talk) return;
+    talk.index++;
+    const line = talk.lines[talk.index];
+    if (line === undefined) {
+      this.endTalk();
+      return;
+    }
+    this.audio.click();
+    const { info } = talk.npc;
+    this.ui.showTalk(info.name, info.role, line, talk.index === talk.lines.length - 1);
+  }
+
+  private endTalk(): void {
+    if (!this.talk) return;
+    this.talk.npc.talking = false;
+    this.talk = null;
+    this.ui.hideTalk();
+    if (this.rig.follow === this.talkFocus) this.rig.follow = this.world.hero.anchor;
+  }
+
+  // ------------------------------------------------------------ feathers and costumes
+
+  /** Put on a costume, if it has been earned. */
+  private wear(id: string, announce = true): void {
+    const outfit = OUTFITS.find((o) => o.id === id && this.unlocked(o)) ?? OUTFITS.find((o) => o.id === DEFAULT_OUTFIT);
+    if (!outfit) return;
+    this.world.hero.wear(outfit);
+    if (this.store.outfit !== outfit.id) this.store.outfit = outfit.id;
+    if (announce) {
+      this.audio.click();
+      this.renderExtras();
+    }
+  }
+
+  private unlocked(outfit: (typeof OUTFITS)[number]): boolean {
+    return outfitUnlocked(outfit, this.store.stamps.length, this.store.feathers.length, this.world.feathers.total);
+  }
+
+  private renderExtras(): void {
+    const choices = OUTFITS.map((o) => ({ ...o, unlocked: this.unlocked(o), hint: unlockText(o) }));
+    this.ui.renderExtras(this.store.feathers.length, this.world.feathers.total, choices, this.store.outfit);
+  }
+
+  /** Tell the player about costumes that the last stamp or feather has just unlocked. */
+  private announceUnlocks(before: Set<string>): void {
+    for (const outfit of OUTFITS) {
+      if (before.has(outfit.id) || !this.unlocked(outfit)) continue;
+      this.ui.toast(`Kostum baru: ${outfit.name}. Ganti kostum lewat buku cap.`);
+    }
+  }
+
+  private unlockedIds(): Set<string> {
+    return new Set(OUTFITS.filter((o) => this.unlocked(o)).map((o) => o.id));
+  }
+
+  private pickUpFeathers(): void {
+    const id = this.world.feathers.collect(this.walker.position);
+    if (!id) return;
+    const before = this.unlockedIds();
+    if (!this.store.addFeather(id)) return;
+    const count = this.store.feathers.length;
+    const total = this.world.feathers.total;
+    this.audio.chime(Math.min(8, 3 + (count % 6)));
+    this.ui.toast(count === total ? `Semua ${total} bulu angin terkumpul!` : `Bulu angin ${count}/${total}`);
+    this.announceUnlocks(before);
+    this.renderExtras();
   }
 
   /** Short scripted approach from wherever the ship is to the island's pier. */
@@ -333,11 +500,6 @@ export class App {
     return { code: info.code, lead, name: info.name };
   }
 
-  private walkArea(built: BuiltIsland): WalkArea {
-    const { blockers, platforms, stairs } = built.walk;
-    return { ground: built.island, blockers, platforms, stairs };
-  }
-
   /** Arrive at an island: the character hops off the gondola onto the pier and the player walks from there. */
   private enterIsland(id: IslandId): void {
     const built = this.world.island(id);
@@ -349,7 +511,7 @@ export class App {
     // Face up the pier, towards the island.
     const yaw = Math.atan2(-built.dock.outward.x, -built.dock.outward.z);
     const from = this.world.ship.root.position.clone().add(new THREE.Vector3(0, GONDOLA_FLOOR, 0));
-    this.walker.enter(this.walkArea(built), built.group.position, built.walk.pier, yaw);
+    this.walker.enter(World.walkArea(built), built.group.position, built.walk.pier, yaw);
     hero.place(from, yaw);
     hero.visible = true;
     this.boarding = true;
@@ -386,6 +548,8 @@ export class App {
   /** Jump back into the gondola and cast off. */
   private board(): void {
     if (this.mode !== 'island' || this.boarding) return;
+    this.endTalk();
+    this.ui.setGuide(null);
     const hero = this.world.hero;
     const to = this.world.ship.root.position.clone().add(new THREE.Vector3(0, GONDOLA_FLOOR, 0));
     this.boarding = true;
@@ -429,24 +593,30 @@ export class App {
     const built = this.world.island(this.current);
 
     if (!this.boarding) {
-      const input = this.walkInput();
+      // A conversation holds the character still; walking off is not an option mid-sentence.
+      const input = this.talk ? { x: 0, z: 0, run: false } : this.walkInput();
       const moving = Math.hypot(input.x, input.z) > 0.05;
       // Any step ends a cinematic shot (such as the fireworks) and brings the camera back.
       if (moving && this.rig.follow !== hero.anchor) this.resumeWalk(this.rig.goal.theta);
 
       const lift = this.ui.touch.lift > 0;
-      if (lift && !this.liftHeld) this.walker.jump();
+      if (lift && !this.liftHeld && !this.talk) this.walker.jump();
       this.liftHeld = lift;
 
       const { jumped, landed } = this.walker.update(dt, input);
+      this.keepClearOfIslanders();
+      const feet = this.walker.position;
       if (jumped) {
         this.audio.hop();
         hero.impact(-0.45);
+        this.world.dust.burst(feet, 5, 0.8);
       }
       if (landed) {
         this.audio.land();
         hero.impact(0.6);
+        this.world.dust.burst(feet, 9, 1.3);
       }
+      this.pickUpFeathers();
       // Ease up onto each stair tread or ledge instead of popping up a whole step in one frame.
       const shown = this.heroShown.copy(this.walker.position);
       const rise = shown.y - hero.root.position.y;
@@ -458,6 +628,8 @@ export class App {
         if (this.stepClock > 1) {
           this.stepClock -= 1;
           this.audio.step();
+          // Only a proper run kicks up dust; strolling stays tidy.
+          if (this.walker.speed > 6) this.world.dust.burst(feet, 2, 0.6);
         }
       }
 
@@ -477,14 +649,120 @@ export class App {
     if (atStation !== this.atStation) {
       this.atStation = atStation;
       this.ui.setTicket(atStation);
-      if (atStation) this.audio.chime(4);
+      if (atStation) {
+        this.audio.chime(4);
+        // Fetch the game's code while the player reads the ticket.
+        if (this.current !== 'hub') prefetchGame(this.current);
+      }
     }
+    this.nearNpc = null;
+    if (!this.boarding && !this.atStation) {
+      let best = TALK_RANGE;
+      for (const npc of this.world.npcsOn(this.current)) {
+        const distance = this.walker.distanceTo(npc.position);
+        if (distance < best) {
+          best = distance;
+          this.nearNpc = npc;
+        }
+      }
+    }
+    // Walking away mid-conversation (only possible by being pushed) ends it quietly.
+    if (this.talk && this.walker.distanceTo(this.talk.npc.position) > TALK_RANGE + 1.5) this.endTalk();
+
     const info = islandInfo(this.current);
-    this.ui.setPrompt(this.atPier ? { code: info.code, lead: 'Naik', name: 'kapal udara' } : null);
+    if (this.talk) this.ui.setPrompt(null);
+    else if (this.nearNpc) this.ui.setPrompt({ code: info.code, lead: 'Ngobrol dengan', name: this.nearNpc.info.name });
+    else this.ui.setPrompt(this.atPier ? { code: info.code, lead: 'Naik', name: 'kapal udara' } : null);
+    this.updateGuide(built);
+  }
+
+  /** Islanders are solid: shove the player round them rather than through them. */
+  private keepClearOfIslanders(): void {
+    const p = this.walker.position;
+    for (const npc of this.world.npcsOn(this.current)) {
+      const dx = p.x - npc.position.x;
+      const dz = p.z - npc.position.z;
+      const reach = NPC_RADIUS + BODY_RADIUS;
+      const d = Math.hypot(dx, dz);
+      if (d >= reach || Math.abs(p.y - npc.position.y) > 1.2) continue;
+      const nx = d > 1e-4 ? dx / d : 1;
+      const nz = d > 1e-4 ? dz / d : 0;
+      p.x = npc.position.x + nx * reach;
+      p.z = npc.position.z + nz * reach;
+    }
+  }
+
+  /**
+   * Third-person camera rule: if a tree crown or a building stands between the character and the
+   * camera, bring the camera in front of it instead of looking at the back of a wall of leaves.
+   */
+  private keepCharacterInView(dt: number): void {
+    const anchor = (this.rig.follow ?? this.world.hero.anchor).position;
+    const toCamera = this.scratch.copy(this.camera.position).sub(anchor);
+    const distance = toCamera.length();
+    if (distance < 1e-3) return;
+    toCamera.divideScalar(distance);
+    this.raycaster.set(anchor, toCamera);
+    this.raycaster.far = distance;
+    const hit = this.raycaster.intersectObjects(this.occluders.get(this.current) ?? [], false)[0];
+    this.raycaster.far = Infinity;
+    // Snap in at once (never show the inside of a tree), ease back out once the view clears.
+    const wanted = hit ? Math.max(1.6, hit.distance - 0.4) : distance;
+    this.viewReach = wanted < this.viewReach ? wanted : damp(this.viewReach, wanted, 2.5, dt);
+    if (this.viewReach >= distance - 0.01) return;
+    this.camera.position.copy(anchor).addScaledVector(toCamera, this.viewReach);
+    this.camera.lookAt(anchor);
+  }
+
+  /** Point the way to the game spot when it is far away and out of view. */
+  private updateGuide(built: BuiltIsland): void {
+    const target = built.walk.station;
+    const distance = this.walker.distanceTo(target);
+    if (this.boarding || this.talk || this.atStation || distance < GUIDE_DISTANCE) {
+      this.ui.setGuide(null);
+      return;
+    }
+    const p = this.scratch.copy(target);
+    p.y += 1.5;
+    p.project(this.camera);
+    const behind = p.z > 1;
+    if (!behind && Math.abs(p.x) < 0.84 && Math.abs(p.y) < 0.78) {
+      this.ui.setGuide(null);
+      return;
+    }
+    // Behind the camera the projection flips, so mirror it back.
+    let x = behind ? -p.x : p.x;
+    let y = behind ? -p.y : p.y;
+    if (Math.hypot(x, y) < 1e-3) y = -1;
+    // Slide the chip out to the edge of a safe box, clear of the top bar and the bottom controls.
+    const k = 1 / Math.max(Math.abs(x) / 0.82, Math.abs(y) / 0.7);
+    x *= k;
+    y *= k;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const info = islandInfo(this.current);
+    this.ui.setGuide({
+      x: (x * 0.5 + 0.5) * width,
+      y: (-y * 0.5 + 0.5) * height,
+      angle: Math.atan2(-y, x),
+      label: `${info.game?.title ?? 'Buku cap'} · ${Math.round(distance)} m`,
+    });
+  }
+
+  /** Islanders on the player's island stroll about; everyone else just breathes. */
+  private updateIslanders(dt: number): void {
+    const onFoot = this.mode === 'island' && this.world.hero.visible;
+    for (const npc of this.world.npcs) {
+      const here = npc.info.island === this.current;
+      const active = here && (this.mode === 'island' || this.mode === 'map');
+      npc.update(dt, this.world.elapsed, onFoot && here ? this.walker.position : null, active);
+    }
   }
 
   private travelTo(id: IslandId): void {
     if (this.mode !== 'map' && this.mode !== 'island' && this.mode !== 'fly') return;
+    this.endTalk();
+    this.ui.setGuide(null);
     if (id === this.current && this.docked) {
       this.enterIsland(id);
       return;
@@ -561,6 +839,8 @@ export class App {
       this.ui.openStamps();
       return;
     }
+    this.endTalk();
+    this.ui.setGuide(null);
     this.mode = 'game';
     this.ui.setMode('game');
     this.ui.setPrompt(null);
@@ -578,7 +858,9 @@ export class App {
     this.gameOver = false;
     this.world.island(id).gameActive = true;
     this.ui.openGame(islandInfo(id));
-    this.game = createGame(id, {
+    // The game's code may still be downloading; if the player leaves meanwhile, drop it.
+    const launch = ++this.launches;
+    void createGame(id, {
       world: this.world,
       built: this.world.island(id),
       camera: this.camera,
@@ -589,27 +871,42 @@ export class App {
       store: this.store,
       hud: this.ui.hud,
       finish: (outcome) => this.finishGame(id, outcome),
-    });
-    this.game.start();
+    })
+      .then((game) => {
+        // Too late: games only touch the scene in start(), so an unstarted one can simply be dropped.
+        if (launch !== this.launches || this.mode !== 'game') return;
+        this.game = game;
+        game.start();
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+        if (launch !== this.launches) return;
+        this.ui.toast('Permainannya gagal dimuat. Cek koneksi, lalu coba lagi.');
+        this.exitGame();
+      });
   }
 
   private finishGame(id: GameId, outcome: GameOutcome): void {
     if (this.mode !== 'game' || this.gameOver) return;
     this.gameOver = true;
+    const before = this.unlockedIds();
     const newStamp = outcome.won && this.store.addStamp(id);
     this.ui.showResult(islandInfo(id), outcome, newStamp);
     this.syncProgress();
+    if (newStamp) this.announceUnlocks(before);
     if (outcome.won) gsap.delayedCall(0.42, () => this.audio.stamp());
   }
 
   private replay(): void {
     if (this.mode !== 'game' || this.current === 'hub') return;
     this.game?.dispose();
+    this.game = null;
     this.launchGame(this.current);
   }
 
   private exitGame(): void {
     if (this.mode !== 'game') return;
+    this.launches++; // a game still downloading is no longer wanted
     this.game?.dispose();
     this.game = null;
     this.ui.hideResult();
@@ -618,7 +915,7 @@ export class App {
     // Back on foot at the game spot, facing back towards the pier.
     const station = built.walk.station;
     const yaw = Math.atan2(built.walk.pier.x - station.x, built.walk.pier.z - station.z);
-    this.walker.enter(this.walkArea(built), built.group.position, station, yaw);
+    this.walker.enter(World.walkArea(built), built.group.position, station, yaw);
     this.world.hero.place(this.walker.position, yaw);
     this.world.hero.visible = true;
     this.syncProgress();
@@ -646,6 +943,8 @@ export class App {
 
   private reset(): void {
     this.store.reset();
+    this.world.feathers.restore(this.store.feathers);
+    this.wear(DEFAULT_OUTFIT, false);
     this.syncProgress();
     this.ui.toast('Progres dihapus. Semua cap kembali kosong.');
   }
@@ -689,6 +988,7 @@ export class App {
     this.world.island('ubin').restored = store.hasStamp('ubin');
     this.ui.setProgress(id, store.stamps);
     this.ui.renderStamps(store.stamps, store.records);
+    this.renderExtras();
     this.ui.setPlace(islandInfo(id));
     this.ui.showTicket(islandInfo(id), {
       stamped: id !== 'hub' && store.hasStamp(id),
@@ -734,6 +1034,10 @@ export class App {
     if (this.mode === 'map') {
       if (key === 'Escape' || key === 'm') this.closeMap();
       else if (key === 't') this.cycleTime();
+      return;
+    }
+    if (this.mode === 'island' && this.talk && (key === 'Escape' || key === ' ')) {
+      this.endTalk();
       return;
     }
     if (this.mode === 'island' && (key === 'Escape' || key === ' ' || key === 'e' || key === 'Enter')) {
@@ -819,9 +1123,13 @@ export class App {
     if (this.mode === 'game') this.game?.update(dt);
     if (this.mode === 'fly') this.updateFlight(dt);
     if (this.mode === 'island') this.updateWalk(dt);
+    this.updateIslanders(dt);
     this.rig.update(dt);
     if (this.mode === 'fly' || this.mode === 'travel') this.keepCameraClear(CAMERA_HULL);
-    else if (this.mode === 'island') this.keepCameraClear(WALK_CAMERA_HULL);
+    else if (this.mode === 'island') {
+      this.keepCameraClear(WALK_CAMERA_HULL);
+      if (this.rig.follow === this.world.hero.anchor || this.rig.follow === this.talkFocus) this.keepCharacterInView(dt);
+    }
     this.updateFov(dt);
     // On foot the moored ship sits right behind the pier; ghost it whenever it hides the character.
     this.world.ship.fadeTo(this.mode === 'island' && this.world.hero.visible && this.shipBlocksView() ? 0.16 : 1, dt);
@@ -837,6 +1145,8 @@ export class App {
       : this.mode === 'island' ? 48
       : this.rig.distance * 0.72;
     this.world.update(dt, this.camera, focus, reach);
+    // The music takes on the colour of whichever island is nearest.
+    this.audio.setMood(this.mode === 'fly' ? (this.placeShown ?? this.current) : this.current);
     this.audio.update(dt, this.world.day.night, this.world.ship.speed);
 
     if (this.mode === 'map' || this.mode === 'fly') this.updateMap();

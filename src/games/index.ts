@@ -1,20 +1,37 @@
 import type { GameId } from '../core/Store';
-import { HiddenCrystals } from './HiddenCrystals';
-import { LanternMemory } from './LanternMemory';
-import { RingRace } from './RingRace';
-import { SlidingPuzzle } from './SlidingPuzzle';
 import type { GameContext, MiniGame } from './types';
 
-export function createGame(id: GameId, ctx: GameContext): MiniGame {
+/**
+ * Each mini game lives in its own chunk and is only downloaded when someone starts it,
+ * which keeps the first load down to the world itself.
+ */
+export async function createGame(id: GameId, ctx: GameContext): Promise<MiniGame> {
   switch (id) {
     case 'ubin':
-      return new SlidingPuzzle(ctx);
+      return new (await import('./SlidingPuzzle')).SlidingPuzzle(ctx);
     case 'rimba':
-      return new HiddenCrystals(ctx);
+      return new (await import('./HiddenCrystals')).HiddenCrystals(ctx);
     case 'angin':
-      return new RingRace(ctx);
+      return new (await import('./RingRace')).RingRace(ctx);
     default:
-      return new LanternMemory(ctx);
+      return new (await import('./LanternMemory')).LanternMemory(ctx);
+  }
+}
+
+/** Start fetching a game's code early, for instance when the player walks up to its spot. */
+export function prefetchGame(id: GameId): void {
+  switch (id) {
+    case 'ubin':
+      void import('./SlidingPuzzle');
+      break;
+    case 'rimba':
+      void import('./HiddenCrystals');
+      break;
+    case 'angin':
+      void import('./RingRace');
+      break;
+    default:
+      void import('./LanternMemory');
   }
 }
 

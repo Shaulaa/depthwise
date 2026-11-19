@@ -17,7 +17,14 @@ class MemoryStorage {
 describe('sanitizeSave', () => {
   it('falls back to an empty save for anything that is not an object', () => {
     for (const junk of [null, undefined, 42, 'x', []]) {
-      expect(sanitizeSave(junk)).toEqual({ stamps: [], records: {}, muted: false, celebrated: false });
+      expect(sanitizeSave(junk)).toEqual({
+        stamps: [],
+        records: {},
+        muted: false,
+        celebrated: false,
+        feathers: [],
+        outfit: 'pelaut',
+      });
     }
   });
 
@@ -36,6 +43,13 @@ describe('sanitizeSave', () => {
       },
     });
     expect(save.records).toEqual({ rimba: { time: 12.5 }, lentera: { lives: 2 } });
+  });
+
+  it('keeps well-formed feathers once and a plausible outfit name', () => {
+    const save = sanitizeSave({ feathers: ['ubin-0', 'ubin-0', 'moon-1', 3, 'hub-2'], outfit: 'senja' });
+    expect(save.feathers).toEqual(['ubin-0', 'hub-2']);
+    expect(save.outfit).toBe('senja');
+    expect(sanitizeSave({ outfit: '<script>' }).outfit).toBe('pelaut');
   });
 
   it('only treats literal true as a set flag', () => {
@@ -84,6 +98,18 @@ describe('Store', () => {
     expect(second.hasStamp('angin')).toBe(true);
     expect(second.records.angin).toEqual({ rings: 11 });
     expect(second.muted).toBe(true);
+  });
+
+  it('counts each feather once and remembers the outfit', () => {
+    const storage = new MemoryStorage();
+    const store = new Store(storage);
+    expect(store.addFeather('rimba-1')).toBe(true);
+    expect(store.addFeather('rimba-1')).toBe(false);
+    expect(store.addFeather('nowhere-1')).toBe(false);
+    store.outfit = 'laut';
+    const again = new Store(storage);
+    expect(again.feathers).toEqual(['rimba-1']);
+    expect(again.outfit).toBe('laut');
   });
 
   it('reset clears progress but keeps the sound preference', () => {
